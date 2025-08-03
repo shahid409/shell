@@ -32,8 +32,16 @@
     {
         if (!IsPostBack)
         {
-            txtPath.Text = Server.MapPath("~");
-            LoadFiles(txtPath.Text);
+            try
+            {
+                string initialPath = Server.MapPath("~/");
+                txtPath.Text = initialPath;
+                LoadFiles(initialPath);
+            }
+            catch (Exception ex)
+            {
+                lblMessage.Text = "Initialization Error: " + ex.Message;
+            }
         }
     }
 
@@ -53,7 +61,7 @@
         }
         catch (Exception ex)
         {
-            lblMessage.Text = "Error: " + ex.Message;
+            lblMessage.Text = "Go Error: " + ex.Message;
         }
     }
 
@@ -97,7 +105,7 @@
         }
         catch (Exception ex)
         {
-            lblMessage.Text = "Error: " + ex.Message;
+            lblMessage.Text = "Load Files Error: " + ex.Message;
         }
     }
 
@@ -116,24 +124,33 @@
                     Response.WriteFile(path);
                     Response.End();
                 }
+                else
+                {
+                    lblMessage.Text = "File not found!";
+                }
             }
             else if (e.CommandName == "Delete")
             {
                 if (File.Exists(path))
                 {
                     File.Delete(path);
+                    lblMessage.Text = "File deleted successfully!";
                 }
                 else if (Directory.Exists(path))
                 {
                     Directory.Delete(path, true);
+                    lblMessage.Text = "Directory deleted successfully!";
+                }
+                else
+                {
+                    lblMessage.Text = "Item not found!";
                 }
                 LoadFiles(txtPath.Text);
-                lblMessage.Text = "Deleted successfully!";
             }
         }
         catch (Exception ex)
         {
-            lblMessage.Text = "Error: " + ex.Message;
+            lblMessage.Text = "Row Command Error: " + ex.Message;
         }
     }
 
@@ -156,7 +173,7 @@
         }
         catch (Exception ex)
         {
-            lblMessage.Text = "Error: " + ex.Message;
+            lblMessage.Text = "Upload Error: " + ex.Message;
         }
     }
 </script>
